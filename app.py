@@ -1,14 +1,3 @@
-# app.py
-"""
-SipSync — Streamlit app (E factor restricted + beta/gama set + D → % mapping)
-Cambios realizados:
-- E (event factor) ahora únicamente puede ser 0, 0.5 o 1 (selección en la UI con etiquetas claras).
-- Forzamos beta = 0.07 y gama = 0.01 en el cálculo.
-- Se hace explícito el mapping pedido: BASE_DEMAND_PCT = 0.05; effective_demand_pct = alpha * BASE_DEMAND_PCT * D.
-- Eliminado "Flash Happy".
-- "Blend" (share vs per-drink ratio) ahora es binario: 0 o 1.
-"""
-
 import os
 import sqlite3
 from datetime import datetime, timezone, timedelta
@@ -21,15 +10,13 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
-# ----------------- Config / Constants -----------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE_DIR, "sip_sync.db")
 VENUE_ID_DEFAULT = 1
 
-# Constants requested
 BETA_FORCED = 0.07
 GAMA_FORCED = 0.01
-BASE_DEMAND_PCT = 0.05  # 5% per 1.0 of D (so D=1 => 5%, D=2 => 10%, D=0.5 => 2.5%)
+BASE_DEMAND_PCT = 0.05 
 
 NEON_PRIMARY = "#D41876"
 NEON_SECONDARY = "#BB17BB"
@@ -40,7 +27,6 @@ CARD_BG = "#1A1A1A"
 TEXT_LIGHT = "#F1ECEC"
 NEON_COLORS = [NEON_PRIMARY, NEON_SECONDARY, NEON_GREEN, NEON_ACCENT, "#1FA767", '#4ECDC4']
 
-# ----------------- UI CSS -----------------
 st.markdown(f"""
 <style>
     .main .block-container {{
@@ -57,7 +43,6 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- DB helpers -----------------
 def get_conn():
     return sqlite3.connect(DB, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES, check_same_thread=False)
 
@@ -69,7 +54,6 @@ def fetch_df(query, params=()):
         conn.close()
     return df
 
-# ----------------- Sanitization helpers -----------------
 def _sanitize_value(v):
     if v is None:
         return None
@@ -155,12 +139,7 @@ def execute_many(query, rows):
     finally:
         conn.close()
 
-# ----------------- Pricing helpers -----------------
 def get_pricing_rule(venue_id):
-    """
-    Lee reglas desde DB, devuelve alpha,beta,gama,max_up_pct,max_down_pct,min_step.
-    Nota: beta y gama se forzan en la lógica posterior a BETA_FORCED y GAMA_FORCED.
-    """
     q = "SELECT alpha, beta, gama, max_up_pct, max_down_pct, min_step FROM pricing_rules WHERE venue_id=? LIMIT 1"
     df = fetch_df(q, (venue_id,))
     if df.empty:
@@ -251,7 +230,6 @@ def _enforce_min_step_change(last_price, candidate_price, min_step):
             return float(max(0.0, last_price - min_step))
     return float(candidate_price)
 
-# ----------------- Recalc prices (main logic) -----------------
 def recalc_prices_realtime(venue_id, window_minutes=10, manual_E=None, weight_share=1.0, tick_time=None):
     """
     Recalcula precios usando la fórmula:
@@ -265,7 +243,6 @@ def recalc_prices_realtime(venue_id, window_minutes=10, manual_E=None, weight_sh
         tick_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
     alpha_db, _, _, max_up_pct, max_down_pct, min_step = get_pricing_rule(venue_id)
-    # force beta/gama as requested
     beta = BETA_FORCED
     gama = GAMA_FORCED
     alpha = alpha_db
@@ -316,21 +293,16 @@ def recalc_prices_realtime(venue_id, window_minutes=10, manual_E=None, weight_sh
         D_share_ratio = (demand_share / expected_share) if expected_share > 0 else 1.0
         D_rel = (recent / expected) if expected > 0 else 1.0
 
-        # blended D (1.0 = normal demand)
-        # weight_share is now expected to be 0 or 1 only
         D = float(weight_share * D_share_ratio + (1.0 - weight_share) * D_rel)
 
-        # effective demand percent contribution using the base 5% per D unit scaling
         effective_demand_pct = float(alpha * BASE_DEMAND_PCT * D)
 
         I = compute_inventory_indicator(venue_id, drink_id)
         raw_price = base_price * (1.0 + effective_demand_pct + beta * E - gama * I)
 
-        # Caps relative to last_price to avoid jump extremes
         max_price = last_price * (1.0 + max_up_pct)
         min_price = last_price * (1.0 - max_down_pct)
 
-        # enforce min_step change to make small drops visible
         candidate = _enforce_min_step_change(last_price, raw_price, min_step)
         capped_price = float(np.clip(candidate, min_price, max_price))
         rounded_price = round_step(capped_price, min_step)
@@ -350,12 +322,11 @@ def recalc_prices_realtime(venue_id, window_minutes=10, manual_E=None, weight_sh
     """, debug_rows)
     return len(rows_state)
 
-# ----------------- Streamlit UI -----------------
 st.set_page_config(page_title="SipSync", layout="wide", page_icon="⚡")
 
 col1, col1 = st.columns([1, 10000])
 with col1:
-    st.markdown(f"<h1 style='color: {NEON_PRIMARY}; text-shadow: 0 0 10px {NEON_PRIMARY}; margin: 0; font-size: 1.4rem; line-height: 1;'>SIP SYNC</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='color: {NEON_PRIMARY}; text-shadow: 0 0 10px {NEON_PRIMARY}; margin: 0; font-size: 1.4rem; line-height: 1;'>SIP SYNC • Dynamic Pricing Prototype</h1>", unsafe_allow_html=True)
     st.markdown(f"<p style='color: {TEXT_LIGHT}; opacity: 0.7; margin: 1; font-size: 0.7rem;'>Dynamic Pricing • Real-time</p>", unsafe_allow_html=True)
 
 with st.sidebar:
@@ -363,7 +334,6 @@ with st.sidebar:
     venue_id = st.number_input("Venue ID", value=VENUE_ID_DEFAULT, min_value=1, key="venue_compact")
     window_minutes_ui = st.slider("Window (min)", min_value=1, max_value=60, value=10, key="window_compact")
 
-    # NEW: E selection fixed to allowed values with descriptive labels
     e_label_map = {
         0.0: "0.0 — Normal day (no event)",
         0.5: "0.5 — Busy night / Weekend",
@@ -374,14 +344,11 @@ with st.sidebar:
                             format_func=lambda v: e_label_map.get(v, str(v)),
                             index=0, key="E_compact")
 
-    # Remove Flash Happy control (user requested)
-    # NEW: weight_share is now binary (0 or 1)
     weight_choice = st.radio("Blend (mode)", options=[0,1], index=1,
                              format_func=lambda v: "Share-based (1) — redistribute demand / others drop" if v==1 else "Per-drink ratio (0) — per-bottle reaction",
                              key="blend_compact")
     weight_share = float(weight_choice)
 
-# Tabs
 tab1, tab2, tab3 = st.tabs(["PRICES", "ORDERS", "GRAF"])
 
 with tab1:
@@ -546,4 +513,5 @@ st.markdown(f"""
         SipSync • P ​ =P    ​ ×(1+αD+βE−γI) •
     </p>
 </div>
+
 """, unsafe_allow_html=True)

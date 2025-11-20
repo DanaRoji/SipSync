@@ -349,7 +349,7 @@ with st.sidebar:
                              key="blend_compact")
     weight_share = float(weight_choice)
 
-tab1, tab2, tab3 = st.tabs(["PRICES", "ORDERS", "GRAF"])
+tab1, tab2, tab3 = st.tabs(["PRICES", "ORDERS", "GRAPH"])
 
 with tab1:
     col_prices, col_stats = st.columns([3, 1])
@@ -515,3 +515,4 @@ st.markdown(f"""
 </div>
 
 """, unsafe_allow_html=True)
+
